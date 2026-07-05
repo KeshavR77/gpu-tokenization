@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Large ShareGPT dataset — download separately (see README)
+ShareGPT_V3_unfiltered_cleaned_split.json
+
+# Per-mode run artifacts produced on the A6000 (kept out of version control)
+results/*/
+results/run_env.txt
+results/summary.md
+results/summary.json

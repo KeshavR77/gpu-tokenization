@@ -1,23 +1,17 @@
-# DRY RUN - 2026-07-04 22:26:55 UTC
+# DRY RUN - 2026-07-11 03:13:59 UTC
 
 Greedy enforcement: no `--temperature` flag in installed `vllm bench serve`; relying on vLLM's benchmark default of temperature 0 (greedy). Verify in server.log per-request sampling params.
-vllm on PATH: False   nvidia-smi: False
+vllm on PATH: False   nvidia-smi: True
 
 ## A - Baseline (no spec)  (A_baseline)
 serve:
-  vllm serve Qwen/Qwen3.5-9B --language-model-only --max-model-len 8192 --gpu-memory-utilization 0.9 --seed 42 --host 127.0.0.1 --port 8000
+  vllm serve Qwen/Qwen3-8B --max-model-len 8192 --gpu-memory-utilization 0.9 --seed 42 --host 127.0.0.1 --port 8000
 bench:
-  vllm bench serve --model Qwen/Qwen3.5-9B --dataset-name sharegpt --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --num-prompts 500 --max-concurrency 1 --seed 42 --host 127.0.0.1 --port 8000 --save-result --result-filename results/A_baseline/bench.json
-
-## B - Native MTP  (B_mtp)
-serve:
-  vllm serve Qwen/Qwen3.5-9B --language-model-only --max-model-len 8192 --gpu-memory-utilization 0.9 --seed 42 --host 127.0.0.1 --port 8000 --speculative-config '{"method":"mtp","num_speculative_tokens":3}'
-bench:
-  vllm bench serve --model Qwen/Qwen3.5-9B --dataset-name sharegpt --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --num-prompts 500 --max-concurrency 1 --seed 42 --host 127.0.0.1 --port 8000 --save-result --result-filename results/B_mtp/bench.json
+  vllm bench serve --model Qwen/Qwen3-8B --dataset-name sharegpt --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --num-prompts 500 --max-concurrency 1 --seed 42 --host 127.0.0.1 --port 8000 --save-result --result-filename results/A_baseline/bench.json
 
 ## C - TLI (Llama draft, heterogeneous vocab)  (C_tli)
 serve:
-  vllm serve Qwen/Qwen3.5-9B --language-model-only --max-model-len 8192 --gpu-memory-utilization 0.9 --seed 42 --host 127.0.0.1 --port 8000 --speculative-config '{"method":"draft_model","model":"meta-llama/Llama-3.2-1B-Instruct","num_speculative_tokens":3,"use_heterogeneous_vocab":true}'
+  vllm serve Qwen/Qwen3-8B --max-model-len 8192 --gpu-memory-utilization 0.9 --seed 42 --host 127.0.0.1 --port 8000 --speculative-config '{"method":"draft_model","model":"meta-llama/Llama-3.2-1B-Instruct","num_speculative_tokens":3,"use_heterogeneous_vocab":true}'
 bench:
-  vllm bench serve --model Qwen/Qwen3.5-9B --dataset-name sharegpt --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --num-prompts 500 --max-concurrency 1 --seed 42 --host 127.0.0.1 --port 8000 --save-result --result-filename results/C_tli/bench.json
+  vllm bench serve --model Qwen/Qwen3-8B --dataset-name sharegpt --dataset-path ./ShareGPT_V3_unfiltered_cleaned_split.json --num-prompts 500 --max-concurrency 1 --seed 42 --host 127.0.0.1 --port 8000 --save-result --result-filename results/C_tli/bench.json
 

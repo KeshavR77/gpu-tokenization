@@ -1,8 +1,21 @@
 #!/usr/bin/env python3
 """
-Three-mode speculative-decoding benchmark for Qwen/Qwen3.5-9B on a single A6000.
+Two-mode speculative-decoding benchmark for Qwen/Qwen3-8B on a single A6000.
 
-For each mode (A baseline / B native-MTP / C TLI cross-tokenizer draft) the harness:
+Modes:
+  A baseline  no speculation
+  C TLI       cross-tokenizer draft (heterogeneous vocab: Llama draft, Qwen3-8B target)
+
+Why only A and C (native-MTP mode B was dropped): TLI is an *external-draft* method -- a
+separate draft model proposes tokens and the target verifies them, which requires the target
+to roll back rejected draft tokens. A dense full-attention model (Qwen3-8B) does this cheaply
+via its positional KV cache. The model that ships a native MTP head (the hybrid GatedDeltaNet
+Qwen3.5-9B) keeps a single recurrent SSM state that cannot be rolled back during verification,
+so external-draft/TLI corrupts its output there. The two speculative methods need opposite
+architectures; this harness standardizes on the dense Qwen3-8B target where TLI is valid, so
+there is no MTP head to benchmark -- hence baseline vs TLI only.
+
+For each mode the harness:
   1. Launches a `vllm serve` subprocess (stdout+stderr -> results/<mode>/server.log)
   2. Polls /health until ready (generous timeout); on failure: kill, mark FAILED, continue
   3. Runs `vllm bench serve` against it (--save-result -> results/<mode>/bench.json)
@@ -12,7 +25,7 @@ For each mode (A baseline / B native-MTP / C TLI cross-tokenizer draft) the harn
 Then it writes results/summary.md (and summary.json) comparing throughput / TPOT / TTFT /
 acceptance-length tau / speedup.
 
-Speculative decoding is output-distribution-preserving, so at temperature 0 all three modes
+Speculative decoding is output-distribution-preserving, so at temperature 0 both modes
 emit *identical* tokens; we are measuring speed only.
 
 Robustness over cleverness: one server at a time, each mode fully isolated, no shared state.
@@ -37,8 +50,7 @@ from pathlib import Path
 
 # --------------------------------------------------------------------------------------
 # Mode definitions. Only the speculative config changes across modes; everything else is
-# fixed (see build_serve_cmd). `num_speculative_tokens` is injected from CLI so B and C
-# always match -- that is what makes the comparison fair.
+# fixed (see build_serve_cmd). `num_speculative_tokens` is injected from CLI.
 # --------------------------------------------------------------------------------------
 def build_modes(num_spec_tokens: int, draft_model: str):
     return [
@@ -49,19 +61,6 @@ def build_modes(num_spec_tokens: int, draft_model: str):
             "speculative_config": None,
         },
         {
-            "name": "B_mtp",
-            "label": "B - Native MTP",
-            "spec": True,
-            # Qwen3.5 exposes a built-in multi-token-prediction head (same tokenizer).
-            # vLLM infers the MTP module from the model; "mtp" is the documented method
-            # string. If the installed nightly rejects it, the failure is captured and
-            # reported (MTP may not yet be wired for the hybrid arch) -- a valid finding.
-            "speculative_config": {
-                "method": "mtp",
-                "num_speculative_tokens": num_spec_tokens,
-            },
-        },
-        {
             "name": "C_tli",
             "label": "C - TLI (Llama draft, heterogeneous vocab)",
             "spec": True,
@@ -69,6 +68,8 @@ def build_modes(num_spec_tokens: int, draft_model: str):
             # token-level intersection of the two vocabularies. API is method=draft_model
             # PLUS use_heterogeneous_vocab=true (NOT method="universal_draft").
             # use_heterogeneous_vocab supports greedy draft sampling only -> temperature 0.
+            # Valid here because Qwen3-8B is a dense full-attention target: its positional KV
+            # cache lets vLLM roll back rejected draft tokens during verification.
             "speculative_config": {
                 "method": "draft_model",
                 "model": draft_model,
@@ -256,7 +257,7 @@ def bench_supports(flag: str) -> bool:
 def build_serve_cmd(mode, args, gpu_mem_util, max_model_len):
     cmd = [
         "vllm", "serve", args.model,
-        "--language-model-only",           # skip the vision tower (text-only benchmark)
+        # (Qwen3-8B is a text-only dense model -- no vision tower, so no --language-model-only.)
         "--max-model-len", str(max_model_len),
         "--gpu-memory-utilization", str(gpu_mem_util),
         "--seed", str(args.seed),
@@ -546,7 +547,7 @@ def build_summary(results, args, env_info):
             r["speedup"] = None
 
     lines = []
-    lines.append("# Speculative Decoding Benchmark - Qwen3.5-9B\n")
+    lines.append("# Speculative Decoding Benchmark - Qwen3-8B (Baseline vs TLI)\n")
     lines.append(f"- Generated: {now_utc()}")
     lines.append(f"- Host: {env_info['hostname']}")
     lines.append(f"- GPU: {env_info['gpu_name']}")
@@ -601,7 +602,7 @@ def build_summary(results, args, env_info):
     lines.append("_Acceptance length tau = mean tokens accepted per decode step "
                  "(1 + accepted_tokens/num_drafts from `vllm:spec_decode_*` counters, or the "
                  "server log's reported acceptance length). Baseline has no speculation -> "
-                 "tau = 1.0. Speculative decoding is lossless, so all modes emit identical "
+                 "tau = 1.0. Speculative decoding is lossless, so both modes emit identical "
                  "tokens at temperature 0; only speed differs._")
     return "\n".join(lines) + "\n"
 
@@ -665,8 +666,9 @@ def dry_run(modes, args):
 # --------------------------------------------------------------------------------------
 def parse_args(argv=None):
     p = argparse.ArgumentParser(
-        description="Three-mode speculative-decoding benchmark for Qwen3.5-9B (vLLM).")
-    p.add_argument("--model", default="Qwen/Qwen3.5-9B")
+        description="Two-mode (baseline vs TLI) speculative-decoding benchmark for "
+                    "Qwen3-8B (vLLM).")
+    p.add_argument("--model", default="Qwen/Qwen3-8B")
     p.add_argument("--draft-model", default="meta-llama/Llama-3.2-1B-Instruct",
                    help="Draft model for mode C (TLI).")
     p.add_argument("--dataset-path", default="./ShareGPT_V3_unfiltered_cleaned_split.json")
@@ -678,12 +680,12 @@ def parse_args(argv=None):
     p.add_argument("--max-model-len", type=int, default=8192)
     p.add_argument("--gpu-mem-util", type=float, default=0.9)
     p.add_argument("--num-spec-tokens", type=int, default=3,
-                   help="num_speculative_tokens for BOTH spec modes (kept equal for fairness).")
+                   help="num_speculative_tokens for the TLI spec mode (C).")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--gpu-id", type=int, default=0)
-    p.add_argument("--modes", default="A,B,C",
-                   help="Comma list subset of A,B,C (or full mode names).")
+    p.add_argument("--modes", default="A,C",
+                   help="Comma list subset of A,C (or full mode names).")
     p.add_argument("--startup-timeout", type=int, default=1800,
                    help="Seconds to wait for /health (nightly model load can be slow).")
     p.add_argument("--bench-timeout", type=int, default=7200)
@@ -694,7 +696,7 @@ def parse_args(argv=None):
 
 
 def select_modes(all_modes, spec: str):
-    alias = {"A": "A_baseline", "B": "B_mtp", "C": "C_tli"}
+    alias = {"A": "A_baseline", "C": "C_tli"}
     wanted = []
     for tok in [t.strip() for t in spec.split(",") if t.strip()]:
         wanted.append(alias.get(tok.upper(), tok))

@@ -1,0 +1,71 @@
+{
+  "generated": "2026-07-11 05:33:13 UTC",
+  "env": {
+    "hostname": "de8be2164782",
+    "gpu_name": "NVIDIA RTX A6000",
+    "vllm_version": "0.25.1.dev34+g092387963"
+  },
+  "args": {
+    "model": "Qwen/Qwen3-8B",
+    "draft_model": "meta-llama/Llama-3.2-1B-Instruct",
+    "dataset_path": "./ShareGPT_V3_unfiltered_cleaned_split.json",
+    "results_dir": "results",
+    "num_prompts": 500,
+    "concurrency": 1,
+    "seed": 42,
+    "max_model_len": 8192,
+    "gpu_mem_util": 0.9,
+    "num_spec_tokens": 3,
+    "host": "127.0.0.1",
+    "port": 8000,
+    "gpu_id": 0,
+    "modes": "A,C",
+    "startup_timeout": 1800,
+    "bench_timeout": 7200,
+    "gpu_free_timeout": 180,
+    "dry_run": false
+  },
+  "results": [
+    {
+      "mode": "A_baseline",
+      "label": "A - Baseline (no spec)",
+      "spec": false,
+      "status": "OK",
+      "reason": "",
+      "output_throughput": 41.09831595672603,
+      "tpot_ms": 24.132402377896536,
+      "ttft_ms": 62.71712454594672,
+      "tau": 1.0,
+      "tau_source": "baseline (no speculation)",
+      "speculative_config": null,
+      "notes": [
+        "gpu freed (used=1MB, baseline=1MB)"
+      ],
+      "completed": 500,
+      "speedup": 1.0
+    },
+    {
+      "mode": "C_tli",
+      "label": "C - TLI (Llama draft, heterogeneous vocab)",
+      "spec": true,
+      "status": "OK",
+      "reason": "",
+      "output_throughput": 50.23162438195285,
+      "tpot_ms": 21.2322324267376,
+      "ttft_ms": 84.31560144666582,
+      "tau": 2.3593218015218334,
+      "tau_source": "metrics: 1 + accepted/num_drafts",
+      "speculative_config": {
+        "method": "draft_model",
+        "model": "meta-llama/Llama-3.2-1B-Instruct",
+        "num_speculative_tokens": 3,
+        "use_heterogeneous_vocab": true
+      },
+      "notes": [
+        "gpu freed (used=1MB, baseline=1MB)"
+      ],
+      "completed": 500,
+      "speedup": 1.222230721931371
+    }
+  ]
+}
